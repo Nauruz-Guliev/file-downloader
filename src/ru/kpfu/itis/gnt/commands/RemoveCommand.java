@@ -19,7 +19,7 @@ public class RemoveCommand implements Command{
             if(downloaders.get(userInput).getEntityDownloadProgress().getProgress() == 100) {
                 System.out.println(EntityColors.makeGreen("File has been downloaded successfully and will be removed from the downloading list."));
             } else {
-                System.out.println(EntityColors.makeRed("Downloading is not completed. File will be removed from the list but incomplete downloading will remain on your computer. Same link can be used later to continue downloading."));
+                System.out.println(EntityColors.makeRed("Downloading has not been completed. File will be removed from the list but incomplete downloading will remain on your computer. Same link can be used later to continue downloading."));
             }
             downloaders.remove(userInput);
             threads.get(userInput).interrupt();
