@@ -77,11 +77,7 @@ public class FileDownloaderApp extends Application {
                 System.out.println(EntityColors.makeRed("Input ID should be a number in range: " + "0-" + (downloaders.size()-1)));
             } catch (IOException | IllegalArgumentException | OperationsException | UnsupportedOperationException ex) {
                 System.out.println(EntityColors.makeRed(ex.getMessage()));
-            } catch (ArithmeticException ex) {
-                downloaders.remove(downloaders.size()-1);
-                threads.remove(threads.size()-1);
-                System.out.println(EntityColors.makeRed("Unfortunately, your url can not be downloaded." ));
-            }
+            } 
         }
     }
 
