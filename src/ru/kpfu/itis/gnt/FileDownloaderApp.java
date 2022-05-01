@@ -1,5 +1,9 @@
 package ru.kpfu.itis.gnt;
 
+import ru.kpfu.itis.gnt.commands.*;
+import ru.kpfu.itis.gnt.entitites.EntityColors;
+
+import javax.management.OperationsException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Scanner;
@@ -9,86 +13,83 @@ public class FileDownloaderApp extends Application {
     private String download_file_path;
     private Scanner sc;
     private String fileName;
-    private String userInput;
-    public static final String ANSI_LIGHT_BLUE = "\u001B[36m";
-    private static final String ANSI_RESET = "\u001b[0m";
-    private final static String infoCommand = "INFO";
-    private final static String pauseCommand = "PAUSE";
-    private final static String resumeCommand = "RESUME";
     private ArrayList<FileDownloader> downloaders;
     private ArrayList<Thread> threads;
+    private String[] commandNames;
+    private Command[] commands;
 
     @Override
     public void init() {
         download_file_path = "src/ru/kpfu/itis/gnt/downloads";
+        commandNames = new String[]{"INFO", "PAUSE", "RESUME", "EXIT", "REMOVE"};
+        sc = new Scanner(System.in);
+        commands = new Command[]{
+                new InfoCommand(),
+                new PauseCommand(),
+                new ResumeCommand(),
+                new ExitCommand(),
+                new RemoveCommand()
+        };
         downloaders = new ArrayList<>();
         threads = new ArrayList<>();
     }
 
     @Override
     public void start() {
+        System.out.printf("%80s", "*** DOWNLOADER APP ***" + "\n\n");
         while (true) {
             try {
-                System.out.print("Type in the URL to download, INFO to get the downloads info or either PAUSE or RESUME for certain downloading: ");
-                sc = new Scanner(System.in).useDelimiter("\n");
-                userInput = sc.next();
-                if (checkIfInfo(userInput)){
-                    printDownloadsInfo();
-                } else if (checkIfPause(userInput)){
-                    pauseDownloading();
-                } else if (checkIfResume(userInput)){
-                    resumeDownloading();
-                } else {
-                    initDownloadUrl(userInput);
-                    initFileName();
-                    downloaders.add(new FileDownloader(download_file_path, download_url, fileName));
-                    threads.add(new Thread(downloaders.get(downloaders.size()-1)));
-                    threads.get(threads.size()-1).start();
+                System.out.print("Type in the URL or one of these commands: INFO, PAUSE, RESUME, REMOVE, EXIT: ");
+                String userCommand = sc.nextLine();
+                int commandIndex = 0;
+                boolean found = false;
+                for (String commandName : commandNames) {
+                    if (userCommand.equals(commandName)) {
+                        commands[commandIndex].execute(downloaders,threads, sc);
+                        found = true;
+                        break;
+                    }
+                    commandIndex++;
                 }
-                System.out.println();
-            } catch (IOException ex) {
-                System.out.println(ex.getMessage());
+                if (!found) {
+                    initDownloadUrl(userCommand);
+                    initFileName();
+                    if (new FileDownloader(download_file_path, download_url, fileName).getEntityDownloadProgress().getFileSize() == 0) {
+                        throw new UnsupportedOperationException("This url can not be downloaded.");
+                    } else if (!downloaders.contains(new FileDownloader(download_file_path, download_url, fileName))) {
+                        downloaders.add(new FileDownloader(download_file_path, download_url, fileName));
+                        threads.add(new Thread(downloaders.get(downloaders.size() - 1)));
+                        threads.get(threads.size() - 1).start();
+                        System.out.println(EntityColors.makeGreen("File " + downloaders.get((downloaders.size())-1).getEntityDownloadProgress().getFileName().substring(1) + " is set to download."));
+                    }  else{
+                        throw new IllegalArgumentException("This url is already downloading.");
+                    }
+                }
+            } catch (StringIndexOutOfBoundsException ex) {
+                System.out.println(EntityColors.makeRed("Wrong input. Its neither a command nor a valid url."));
+            } catch (IndexOutOfBoundsException ex) {
+                if (downloaders.isEmpty()) {
+                    System.out.println(EntityColors.makeRed("There is no ongoing downloading."));
+                } else {
+                    System.out.println(EntityColors.makeRed("There is no downloading with such an index."));
+                }
+            } catch (NumberFormatException ex) {
+                System.out.println(EntityColors.makeRed("Input ID should be a number in range: " + "0-" + (downloaders.size()-1)));
+            } catch (IOException | IllegalArgumentException | OperationsException | UnsupportedOperationException ex) {
+                System.out.println(EntityColors.makeRed(ex.getMessage()));
+            } catch (ArithmeticException ex) {
+                downloaders.remove(downloaders.size()-1);
+                threads.remove(threads.size()-1);
+                System.out.println(EntityColors.makeRed("Unfortunately, your url can not be downloaded." ));
             }
         }
     }
-    private boolean checkIfInfo(String str){
-        return str.equals(infoCommand);
-    }
-    private boolean checkIfResume(String str){
-        return str.equals(resumeCommand);
-    }
-    private void printDownloadsInfo(){
-        for (int i = 0; i < downloaders.size(); i++) {
-            System.out.printf("%-8s%-40s%32s%32s%25s%20s", "ID: " +colorP(String.valueOf(i)) + " ", "File Name: " + colorP(downloaders.get(i).getFileName().substring(1)) + " ", "Downloaded so far: " + colorP(String.valueOf(downloaders.get(i).getDownloadedSoFarInBytes()) +" KBs") + " ",
-            "Total file size: " + colorP(String.valueOf(downloaders.get(i).getSizeOfFile()) +" KBs") + " ", "Status: " + downloaders.get(i).isDownloading() + " ", "Downloaded percentage: " + colorP(String.valueOf(downloaders.get(i).getPercentsDownloaded())+"%") +"\n");
-        }
-    }
-    private void resumeDownloading() {
-        printDownloadsInfo();
-        System.out.print("Choose the downloading that you want to RESUME and type in its ID: ");
-        sc = new Scanner(System.in).useDelimiter("\n");
-        userInput = sc.next();
-        downloaders.get(Integer.parseInt(userInput)).startDownloading();
-    }
-    private void pauseDownloading() {
-        printDownloadsInfo();
-        System.out.print("Choose the downloading that you want to PAUSE and type in its ID: ");
-        sc = new Scanner(System.in).useDelimiter("\n");
-        userInput = sc.next();
-        downloaders.get(Integer.parseInt(userInput)).stopDownloading();
-    }
-    private boolean checkIfPause(String str) {
-        return str.equals(pauseCommand);
-    }
 
     private void initFileName() {
-        fileName = download_url.substring(download_url.lastIndexOf("/"));
+        this.fileName = download_url.substring(download_url.lastIndexOf("/"));
     }
 
     private void initDownloadUrl(String downloadUrl) {
         this.download_url = downloadUrl;
-    }
-    private String colorP(String str) {
-        return ANSI_LIGHT_BLUE + str + ANSI_RESET;
     }
 }

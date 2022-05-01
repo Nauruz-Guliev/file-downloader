@@ -6,7 +6,6 @@ public abstract class Application {
         this.init();
         this.start();
     }
-
     public abstract void init();
     public abstract void start();
 }

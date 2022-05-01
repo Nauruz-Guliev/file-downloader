@@ -1,52 +1,53 @@
 package ru.kpfu.itis.gnt;
 
+import ru.kpfu.itis.gnt.entitites.EntityDownloadProgress;
+
+import javax.management.OperationsException;
 import java.io.*;
 import java.net.*;
-import java.util.Objects;
 
 public class FileDownloader implements Runnable {
-    private static final String ANSI_RESET = "\u001b[0m";
-    public static final String ANSI_YELLOW = "\u001B[33m";
-    public static final String ANSI_GREEN = "\u001B[32m";
-    public static final String ANSI_PURPLE = "\u001B[35m";
-    private final File DOWNLOAD_FILE;
-    private final static int BUFFER_SIZE = 1024;
+    private final File fileToDownload;
+    private final static int BUFFER_SIZE_ONE_KB = 1024;
     private boolean downloading;
     private long sizeOfFile;
-    private String fileName;
+    private final String fileName;
     private URLConnection urlconnection;
-    private URL url;
-    private long percentsCompleted;
+    private final URL url;
+    private final EntityDownloadProgress entityDownloadProgress;
 
-    public FileDownloader(String DOWNLOAD_PATH, String DOWNLOAD_URL, String fileName) throws IOException {
-        this.DOWNLOAD_FILE = new File(DOWNLOAD_PATH + fileName);
-        this.url = new URL(DOWNLOAD_URL);
+    public FileDownloader(String pathToDownloadInto, String urlToDownload, String fileName) throws IOException {
+        this.fileToDownload = new File(pathToDownloadInto + fileName);
+        this.url = new URL(urlToDownload);
         this.downloading = true;
         this.fileName = fileName;
+        this.entityDownloadProgress = new EntityDownloadProgress();
         sizeOfFile();
     }
 
     @Override
-    public void run() {
+    public void run(){
         try {
             startFileDownloading();
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.println("exception from run() :" + e.getMessage());
         }
     }
 
     private void startFileDownloading() throws IOException {
         while (downloading && !isDownloadingCompleted()) {
-            if (DOWNLOAD_FILE.exists()) {
+            long range = 0;
+            if (fileToDownload.exists()) {
                 openUrlConnection();
-                urlconnection.setRequestProperty("Range", "bytes=" + getDownloadedSoFarInBytes() + "-");
-                try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(DOWNLOAD_FILE, true));
+                range = fileToDownload.length();
+                urlconnection.setRequestProperty("Range", "bytes=" + range + "-");
+                try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToDownload, true));
                      BufferedInputStream in = new BufferedInputStream(urlconnection.getInputStream())
                 ) {
                     download(in, out);
                 }
             } else {
-                try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(DOWNLOAD_FILE));
+                try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToDownload));
                      BufferedInputStream in = new BufferedInputStream(urlconnection.getInputStream())
                 ) {
                     download(in, out);
@@ -55,44 +56,27 @@ public class FileDownloader implements Runnable {
         }
     }
 
-    public long getDownloadedSoFarInBytes() {
-        return DOWNLOAD_FILE.length() / 1024;
-    }
-
     private void download(BufferedInputStream in, BufferedOutputStream out) throws IOException {
-        byte[] dataBuffer = new byte[BUFFER_SIZE];
-        int bytesRead;
-        while ((bytesRead = in.read(dataBuffer, 0, BUFFER_SIZE)) != -1) {
-            out.write(dataBuffer, 0, bytesRead);
+        byte[] buffer = new byte[BUFFER_SIZE_ONE_KB];
+        int bytesRead = -1;
+        while (downloading && (bytesRead = in.read(buffer)) != -1) {
+            out.write(buffer, 0, bytesRead);
         }
     }
 
-    private void sizeOfFile() throws IOException {
+    private void sizeOfFile() throws IOException, UnsupportedOperationException {
         openUrlConnection();
         HttpURLConnection httpConnection = (HttpURLConnection) urlconnection;
         httpConnection.setRequestMethod("HEAD");
         sizeOfFile = httpConnection.getContentLengthLong();
     }
 
-    public long getSizeOfFile() {
-        return sizeOfFile / 1024;
-    }
-
-    public String getFileName() {
-        return fileName;
-    }
-
     private void openUrlConnection() throws IOException {
         urlconnection = url.openConnection();
     }
 
-    public long getPercentsDownloaded() {
-        percentsCompleted = 100 * getDownloadedSoFarInBytes() / getSizeOfFile();
-        return percentsCompleted;
-    }
-
     private boolean isDownloadingCompleted() {
-        if (getSizeOfFile() <= getDownloadedSoFarInBytes()) {
+        if (sizeOfFile <= fileToDownload.length()) {
             downloading = false;
             return true;
         } else {
@@ -100,33 +84,29 @@ public class FileDownloader implements Runnable {
         }
     }
 
-    public void stopDownloading() {
+    public void stopDownloading() throws OperationsException {
         downloading = false;
+        if (isDownloadingCompleted()) {
+            throw new OperationsException("File has been downloaded already.");
+        }
     }
 
-    public void startDownloading() {
+    public void startDownloading() throws OperationsException {
         if (!isDownloadingCompleted()) {
             downloading = true;
-        }
-    }
-
-    public String isDownloading() {
-        if (!isDownloadingCompleted() && downloading) {
-            return ANSI_YELLOW + "downloading..." + ANSI_RESET;
-        } else if (!downloading && !isDownloadingCompleted()) {
-            return ANSI_PURPLE + "paused" + ANSI_RESET;
         } else {
-            return ANSI_GREEN + "completed" + ANSI_RESET;
+            throw new OperationsException("File has been downloaded already.");
         }
     }
 
-    @Override
-    public String toString() {
-        return "FileName=" + fileName.substring(1) +
-                ", SizeOfFileDownloaded " + getDownloadedSoFarInBytes() +
-                ". PercentsDownloaded=" + getPercentsDownloaded() +
-                ", Status=" + isDownloading() +
-                ", SizeOfFileInBytes=" + sizeOfFile + '\'';
+    public EntityDownloadProgress getEntityDownloadProgress() {
+        // need to update the information before getting it
+        entityDownloadProgress.setProgress((int) (fileToDownload.length() * 100 / sizeOfFile));
+        entityDownloadProgress.setDownloadedSize(fileToDownload.length() / BUFFER_SIZE_ONE_KB);
+        entityDownloadProgress.setFileSize(sizeOfFile / BUFFER_SIZE_ONE_KB);
+        entityDownloadProgress.setDownloadStatus(isDownloadingCompleted(), downloading);
+        entityDownloadProgress.setFileName(fileName);
+        return entityDownloadProgress;
     }
 
     @Override
@@ -134,11 +114,6 @@ public class FileDownloader implements Runnable {
         if (this == o) return true;
         if (!(o instanceof FileDownloader)) return false;
         FileDownloader that = (FileDownloader) o;
-        return downloading == that.downloading && getSizeOfFile() == that.getSizeOfFile() && percentsCompleted == that.percentsCompleted && Objects.equals(DOWNLOAD_FILE, that.DOWNLOAD_FILE) && Objects.equals(fileName, that.fileName) && Objects.equals(urlconnection, that.urlconnection) && Objects.equals(url, that.url);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(DOWNLOAD_FILE, downloading, getSizeOfFile(), fileName, urlconnection, url, percentsCompleted);
+        return fileName.equals(that.fileName) && url.equals(that.url);
     }
 }
